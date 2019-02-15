@@ -4,89 +4,96 @@ import "./utils.sol";
 
 contract Lottery
 {
-    struct Ticket
-    {
-        address buyer;
-        uint8[6] luckyLumbers;
-    }
-    
-    uint MIN_TICKET_COST = 30000;
-    uint8 MAX_LUCKY_NUMBER_VALUE = 60;
+    uint256 MAX_LUCKY_NUMBER_VALUE = 100000;
+    uint8 OWNER_CUT = 10;
     
     address _owner;
-    uint _drawDate;
-    uint _ticketCost;
-    bool _ended;
-    Ticket[] _tickets;
-    uint8[6] _drawnNumbers;
+    uint256 _drawDate;
+    uint256 _drawnNumber;
+    uint256 _ticketCost;
+    bool _gameActive;
+    mapping (uint256 => address) _tickets;
     
-    event TicketBought(address buyer, uint ticketCost, uint8[6] luckyNumbers);
-    event OverpayedTicket(address buyer, uint valuePayed, uint ticketCost);
+    event NewGameSetEvent(uint256 ticketCost, uint256 drawDate);
+    event TicketBoughtEvent(address buyer, uint256 ticketCost, uint256 luckyNumber);
+    event OverpayedTicketEvent(address buyer, uint256 valuePayed, uint256 ticketCost);
+    event PrizeTransferredEvent();
     
-    constructor(uint ticketCost, uint drawDate) public
+    constructor() public
     {
-        require(drawDate > block.timestamp, "Draw date must be in the future");
-        require(ticketCost >= MIN_TICKET_COST, 
-            Utils.strConcat("Ticket cost must be of at least ", Utils.toString(MIN_TICKET_COST), " weis"));
-        
         _owner = msg.sender;
+        _gameActive = false;
+    }
+    
+    function setupGame(uint ticketCost, uint drawDate) public
+    {
+        require(msg.sender == _owner, "Only the lottery owner can setup games");
+        require(_gameActive == false, "A lottery game is currently active");
+        require(drawDate > block.timestamp, "Draw date must be in the future");
+        
         _drawDate = drawDate;
         _ticketCost = ticketCost;
-        _ended = false;
+        _gameActive = true;
         
-        //TODO: randomly choose numbers
-        for(uint8 i = 0; i < _drawnNumbers.length; i++)
-        {
-            _drawnNumbers[i] = 0; //choose random number
-        }
-        
-        //TODO: set event to certain time and date
+        emit NewGameSetEvent(_ticketCost, _drawDate);
     }
     
-    function cancelGame() public
+    function drawLuckyNumber() public
     {
-        require(msg.sender == _owner, "Only the lottery creator can cancel it");
+        require(msg.sender == _owner, "Only the lottery owner can draw the lucky number");
+        require(_gameActive == true, "No game is active at the moment");
+        require(now >= _drawDate, "The draw date has not come up yet");
         
-        for(uint i = 0; i < _tickets.length; i++)
+        //Draw number and pick winner
+        uint256 luckyNumber = Utils.randomGenerator(MAX_LUCKY_NUMBER_VALUE);
+        address winner = _tickets[luckyNumber];
+        
+        //Someone has won the lottery: send the money
+        if(winner != 0)
         {
-            _tickets[i].buyer.transfer(_ticketCost);
+            _owner.transfer(address(this).balance/OWNER_CUT);
+            winner.transfer(address(this).balance);
+            _gameActive = false;
+            emit PrizeTransferredEvent();
         }
         
-        selfdestruct(_owner);
+        //No one has won: delay for a month
+        else
+            setupGame(_ticketCost, now + 30 days);
     }
     
-    function buyTicket(uint8[6] luckyNumbers) public payable
+    function buyTicket(uint256 luckyNumber) public payable
     {
-        require(now < _drawDate, "This lottery has already ended");
-        
         require(msg.sender != _owner, "Lottery owner cannot buy tickets");
-        
-        require(msg.value >= MIN_TICKET_COST, 
-            Utils.strConcat("A Ticket costs ", Utils.toString(_ticketCost), " weis"));
+        require(_gameActive == true, "There is no lottery active at the moment");
+        require(msg.value >= _ticketCost, "Ticket cost was not reached");
             
         if(msg.value > _ticketCost)
         {
             msg.sender.transfer(msg.value - _ticketCost);
-            emit OverpayedTicket(msg.sender, msg.value, _ticketCost);
+            emit OverpayedTicketEvent(msg.sender, msg.value, _ticketCost);
         }
         
-        for(uint8 i = 0; i < luckyNumbers.length; i++)
-        {
-            require(luckyNumbers[i] <= MAX_LUCKY_NUMBER_VALUE, 
-                Utils.strConcat("Lucky numbers must be from 0 to ", Utils.toString(MAX_LUCKY_NUMBER_VALUE)));
-        }
-        
-        _tickets.push(Ticket(msg.sender, luckyNumbers));
-        emit TicketBought(msg.sender, _ticketCost, luckyNumbers);
+        _tickets[luckyNumber] = msg.sender;
+        emit TicketBoughtEvent(msg.sender, _ticketCost, luckyNumber);
+    }
+    
+    function cancelLottery() public
+    {
+        require(msg.sender == _owner, "Only the lottery owner can destroy it");
+        require(_gameActive == false, "There is a game currently active");
+        selfdestruct(_owner);
     }
     
     function gameInfo() public view 
-    returns(bool ended, uint drawDate, uint numberOfPlayers, uint prizePool)
+    returns(uint256 ticketCost, uint256 drawDate, uint256 prizePool)
     {
-        return (
-            _ended,
+        require(_gameActive == true, "There is no game currently active");
+        
+        return
+        (
+            _ticketCost,
             _drawDate,
-            _tickets.length,
             address(this).balance
         );
     }

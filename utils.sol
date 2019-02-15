@@ -2,9 +2,10 @@ pragma solidity ^0.4.9;
 
 library Utils
 {
-    //-----------------------------
-    //STRINGS
-    //-----------------------------
+    function randomGenerator(uint256 maxNumber) internal view returns (uint256)
+    {
+        return uint256(keccak256(block.timestamp, block.difficulty)) % maxNumber;
+    }
     
     function strConcat(string _a, string _b, string _c, string _d, string _e) internal pure returns (string)
     {
